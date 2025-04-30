@@ -28,13 +28,20 @@ pub fn build(b: *std.Build) void {
         scanner.generate("org_kde_kwin_appmenu_manager", 2);
     }
 
-    const exe = b.addExecutable(.{
-        .name = "break-reminder",
+    const miniaudio_dep = b.dependency("miniaudio", .{});
+
+    const exe_mod = b.createModule(.{
         .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
     });
-    exe.root_module.addImport("wayland", wayland);
+    exe_mod.addImport("wayland", wayland);
+    exe_mod.addIncludePath(miniaudio_dep.path("include"));
+
+    const exe = b.addExecutable(.{
+        .name = "windchime",
+        .root_module = exe_mod,
+    });
 
     exe.linkLibC();
     exe.linkSystemLibrary2("wayland-client", .{});

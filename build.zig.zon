@@ -25,17 +25,21 @@
     // internet connectivity.
     .dependencies = .{
         .zig_wayland = .{
-            .url = "https://codeberg.org/ifreund/zig-wayland/archive/master.zip",
-            .hash = "zig_wayland-0.3.0-dev-r73zYTzIAQAOXkH-9fjwrtXiGA7nDbOOkm-a_WcnQbQE",
+            .url = "git+https://codeberg.org/ifreund/zig-wayland#v0.3.0",
+            .hash = "wayland-0.3.0-lQa1kjPIAQDmhGYpY-zxiRzQJFHQ2VqhJkQLbKKdt5wl",
         },
         .wayland_protocols = .{
             .url = "https://gitlab.freedesktop.org/wayland/wayland-protocols/-/archive/1.41/wayland-protocols-1.41.zip",
             .hash = "N-V-__8AAKVpDQArujwc7m_Z--ypCGFKQ4yb10QdjR99hoEf",
         },
         .kde_protocols = .{
-            // .url = "https://invent.kde.org/frameworks/kwayland-protocols/-/archive/v1.16.0/plasma-wayland-protocols-v1.16.0.tar.gz",
-            .path = "plasma-wayland-protocols",
+            .url = "https://invent.kde.org/libraries/plasma-wayland-protocols/-/archive/v1.17.0/plasma-wayland-protocols-v1.17.0.tar.gz",
+            .hash = "N-V-__8AAJgbBACDumVBAPUgFZV0zRnvnKObLIsppq3P8X9M",
             .lazy = true,
+        },
+        .miniaudio = .{
+            .url = "git+https://github.com/mackron/miniaudio?ref=0.11.22#350784a9467a79d0fa65802132668e5afbcf3777",
+            .hash = "N-V-__8AAIX6uQBMQoqkZK7Ws3HsCwSJf1Z_KLsW4CJx81k3",
         },
     },
     .paths = .{

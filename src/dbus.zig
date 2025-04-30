@@ -29,6 +29,10 @@ pub const Error = extern struct {
     pub fn free(self: *Error) void {
         c.dbus_error_free(@ptrCast(self));
     }
+
+    pub fn isSet(self: *Error) bool {
+        return c.dbus_error_is_set(@ptrCast(self)) == TRUE;
+    }
 };
 
 pub const DBusObject = struct {
@@ -60,9 +64,9 @@ pub const Connection = opaque {
         return @ptrCast(conn);
     }
 
-    // pub fn close(self: *Connection) !void {
-    //     c.dbus_connection_close(@ptrCast(self));
-    // }
+    pub fn close(self: *Connection) !void {
+        c.dbus_connection_unref(@ptrCast(self));
+    }
 
     pub fn addMatch(self: *Connection, match_rule: [:0]const u8, err: ?*Error) !void {
         const dbus_error: *c.DBusError = @ptrCast(err);
@@ -100,6 +104,12 @@ pub const Connection = opaque {
         return @ptrCast(msg);
     }
 
+    pub fn send(self: *Connection, message: *Message, id: u32) !void {
+        var serial: c_uint = @intCast(id);
+        const res = c.dbus_connection_send(@ptrCast(self), @ptrCast(message), @ptrCast(&serial));
+        return checkMemoryError(res);
+    }
+
     pub fn sendWithReplyAndBlock(self: *Connection, message: *Message, timeout: i32, err: ?*Error) !?*Message {
         const dbus_error: *c.DBusError = @ptrCast(err);
         const res = c.dbus_connection_send_with_reply_and_block(@ptrCast(self), @ptrCast(message), timeout, dbus_error);
@@ -110,6 +120,10 @@ pub const Connection = opaque {
             return error.DBusSendError;
         }
         return @ptrCast(res);
+    }
+
+    pub fn flush(self: *Connection) void {
+        c.dbus_connection_flush(@ptrCast(self));
     }
 
     pub fn registerObject(self: *Connection, path: [:0]const u8, object: DBusObject) !void {
@@ -124,6 +138,36 @@ pub const Connection = opaque {
         if (res == c.FALSE) {
             return error.DBusUnregisterObjectError;
         }
+    }
+
+    pub const RequestNameResult = enum(c_int) {
+        err = -1,
+        primary_owner = c.DBUS_REQUEST_NAME_REPLY_PRIMARY_OWNER,
+        in_queue = c.DBUS_REQUEST_NAME_REPLY_IN_QUEUE,
+        exists = c.DBUS_REQUEST_NAME_REPLY_EXISTS,
+        denied = c.DBUS_REQUEST_NAME_REPLY_ALREADY_OWNER,
+    };
+    pub const RequestNameFlags = packed struct(c_uint) {
+        allow_replacement: bool = false,
+        replace_existing: bool = false,
+        do_not_queue: bool = false,
+        _: u29 = 0,
+    };
+
+    pub fn requestName(self: *Connection, name: [:0]const u8, flags: RequestNameFlags, err: ?*Error) !RequestNameResult {
+        return @enumFromInt(c.dbus_bus_request_name(@ptrCast(self), name.ptr, @bitCast(flags), @ptrCast(err)));
+    }
+
+    pub const ReleaseNameResult = enum(c_int) {
+        err = -1,
+        released = c.DBUS_RELEASE_NAME_REPLY_RELEASED,
+        not_owner = c.DBUS_RELEASE_NAME_REPLY_NOT_OWNER,
+        non_existent = c.DBUS_RELEASE_NAME_REPLY_NON_EXISTENT,
+    };
+
+    pub fn releaseName(self: *Connection, name: [:0]const u8, err: ?*Error) ReleaseNameResult {
+        const res = c.dbus_bus_release_name(@ptrCast(self), name.ptr, @ptrCast(err));
+        return @enumFromInt(res);
     }
 };
 
@@ -165,6 +209,15 @@ pub const Message = opaque {
         c.dbus_message_unref(@ptrCast(self));
     }
 
+    pub fn reply(call: *Message) !*Message {
+        const msg = c.dbus_message_new_method_return(@ptrCast(call));
+        if (msg) |m| {
+            return @ptrCast(m);
+        } else {
+            return error.OutOfMemory;
+        }
+    }
+
     pub fn getSender(self: *Message) [*c]const u8 {
         return c.dbus_message_get_sender(@ptrCast(self));
     }
@@ -177,6 +230,10 @@ pub const Message = opaque {
         return c.dbus_message_get_member(@ptrCast(self));
     }
 
+    pub fn getSignature(self: *Message) [*c]const u8 {
+        return c.dbus_message_get_signature(@ptrCast(self));
+    }
+
     pub const Kind = enum(c_int) {
         method_call = c.DBUS_MESSAGE_TYPE_METHOD_CALL,
         method_return = c.DBUS_MESSAGE_TYPE_METHOD_RETURN,
@@ -186,6 +243,9 @@ pub const Message = opaque {
 
     pub fn isKind(self: *Message, msg_type: Kind) bool {
         return c.dbus_message_get_type(@ptrCast(self)) == @intFromEnum(msg_type);
+    }
+    pub fn getType(self: *Message) Kind {
+        return @enumFromInt(c.dbus_message_get_type(@ptrCast(self)));
     }
 
     pub const Iter = struct {
@@ -213,11 +273,11 @@ pub const Message = opaque {
         pub fn next(iter: *Iter) ?Value {
             var val: c.DBusBasicValue = undefined;
 
+            const kind = iter.getArgType();
             const res = c.dbus_message_iter_next(@ptrCast(iter)) != 0;
             if (!res) {
                 return null;
             }
-            const kind = iter.getArgType();
 
             iter.getBasic(&val);
             return .{
@@ -235,7 +295,7 @@ pub const Message = opaque {
             const val: ?*const anyopaque = @ptrCast(&value);
             const info = @typeInfo(T);
             return switch (info) {
-                .bool => checkMemoryError(c.dbus_message_iter_append_basic(i, c.DBUS_TYPE_BOOL, val)),
+                .bool => checkMemoryError(c.dbus_message_iter_append_basic(i, c.DBUS_TYPE_BOOLEAN, if (value) &c.TRUE else &c.FALSE)),
                 .int => |I| switch (I.signedness) {
                     .unsigned => switch (I.bits) {
                         0...8 => checkMemoryError(c.dbus_message_iter_append_basic(i, c.DBUS_TYPE_BYTE, val)),
@@ -273,10 +333,26 @@ pub const Message = opaque {
             };
         }
 
+        pub fn appendFixedArray(iter: *Iter, comptime T: type, array: [*]const T, len: usize) !void {
+            const i: *c.DBusMessageIter = @ptrCast(iter);
+            const size: c_int = @intCast(len);
+            return switch (@typeInfo(T)) {
+                .int => |I| switch (I.bits) {
+                    0...8 => checkMemoryError(c.dbus_message_iter_append_fixed_array(i, c.DBUS_TYPE_BYTE, @ptrCast(&array), size)),
+                    9...16 => checkMemoryError(c.dbus_message_iter_append_fixed_array(i, c.DBUS_TYPE_UINT16, @ptrCast(&array), size)),
+                    17...32 => checkMemoryError(c.dbus_message_iter_append_fixed_array(i, c.DBUS_TYPE_UINT32, @ptrCast(&array), size)),
+                    33...64 => checkMemoryError(c.dbus_message_iter_append_fixed_array(i, c.DBUS_TYPE_UINT64, @ptrCast(&array), size)),
+                    else => @compileError("Unsupported Integer type for appending fixed array to dbus message iteration"),
+                },
+                else => @compileError("Unsupported type for appending fixed array to dbus message iteration"),
+            };
+        }
+
         pub const ContainerKind = enum(c_int) {
             array = c.DBUS_TYPE_ARRAY,
             dict_entry = c.DBUS_TYPE_DICT_ENTRY,
             variant = c.DBUS_TYPE_VARIANT,
+            @"struct" = c.DBUS_TYPE_STRUCT,
         };
 
         pub fn openContainer(iter: *Iter, kind: ContainerKind, signature: ?[:0]const u8, child: *Iter) !void {
